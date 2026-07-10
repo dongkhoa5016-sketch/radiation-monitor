@@ -1,0 +1,932 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RADMON · Giám Sát Phóng Xạ</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --bg:#0a0d12;
+    --panel:#10151c;
+    --panel-2:#141b24;
+    --border:#212a37;
+    --border-soft:#1a2129;
+    --text:#e8edf4;
+    --muted:#7d8aa0;
+    --muted-dim:#4c5768;
+
+    --yellow:#f4c430;
+    --yellow-dim:#8a7020;
+    --green:#33d68a;
+    --amber:#ff9f1c;
+    --red:#ff5c5c;
+    --blue:#5eb1ff;
+
+    --font-display:'Space Grotesk',sans-serif;
+    --font-ui:'Inter',sans-serif;
+    --font-mono:'JetBrains Mono',monospace;
+  }
+
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{background:var(--bg);color:var(--text);font-family:var(--font-ui);}
+  body{
+    min-height:100vh;
+    padding:0 0 40px;
+    background-image:
+      radial-gradient(circle at 15% 0%, rgba(244,196,48,0.05), transparent 40%),
+      radial-gradient(circle at 100% 20%, rgba(94,177,255,0.05), transparent 45%);
+  }
+
+  /* ---------- hazard strip ---------- */
+  .hazard-strip{
+    height:6px;
+    width:100%;
+    background:repeating-linear-gradient(135deg, var(--yellow) 0 14px, #14181f 14px 28px);
+    opacity:0.85;
+  }
+
+  .container{max-width:1400px;margin:0 auto;padding:0 24px;}
+
+  /* ---------- header ---------- */
+  header{
+    display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;
+    padding:22px 0 20px;border-bottom:1px solid var(--border);margin-bottom:26px;
+  }
+  .brand{display:flex;align-items:center;gap:14px;}
+  .trefoil{width:38px;height:38px;flex-shrink:0;}
+  .brand-text h1{
+    font-family:var(--font-display);font-size:19px;font-weight:600;letter-spacing:0.3px;color:var(--text);
+    text-transform:uppercase;
+  }
+  .brand-text p{font-size:12px;color:var(--muted);margin-top:2px;letter-spacing:0.2px;}
+
+  .header-right{display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+  .live-clock{font-family:var(--font-mono);font-size:13px;color:var(--muted);min-width:78px;text-align:right;}
+
+  .status-badge{
+    display:flex;align-items:center;gap:8px;
+    background:var(--panel);border:1px solid var(--border);
+    padding:7px 14px;border-radius:20px;font-size:12.5px;color:var(--muted);font-family:var(--font-mono);
+  }
+  .status-dot{width:8px;height:8px;border-radius:50%;background:var(--muted-dim);transition:background .3s;}
+  .status-dot.online{background:var(--green);box-shadow:0 0 8px var(--green);}
+  .status-dot.offline{background:var(--red);box-shadow:0 0 8px var(--red);}
+
+  /* ---------- control bar ---------- */
+  .control-panel{
+    display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px;margin-bottom:24px;
+  }
+  .filter-group{display:flex;gap:4px;background:var(--panel);padding:4px;border-radius:9px;border:1px solid var(--border);}
+  .btn{
+    background:transparent;color:var(--muted);border:none;padding:8px 16px;font-size:13px;font-weight:500;
+    border-radius:6px;cursor:pointer;transition:all .15s ease;display:flex;align-items:center;gap:7px;
+    font-family:var(--font-ui);
+  }
+  .btn:hover{color:var(--text);background:rgba(255,255,255,0.04);}
+  .btn.active{background:var(--yellow);color:#14181f;font-weight:600;}
+  .btn svg{width:14px;height:14px;}
+
+  .btn-action{
+    background:var(--green);color:#06110b;border:none;padding:10px 18px;font-size:13px;font-weight:600;
+    border-radius:8px;cursor:pointer;display:flex;align-items:center;gap:8px;transition:filter .15s;
+    font-family:var(--font-ui);
+  }
+  .btn-action:hover{filter:brightness(1.08);}
+  .btn-action svg{width:15px;height:15px;}
+
+  /* ---------- top row: gauge + status lights + metrics ---------- */
+  .top-row{
+    display:grid;grid-template-columns:340px 1fr;gap:20px;margin-bottom:20px;
+  }
+  @media (max-width:920px){ .top-row{grid-template-columns:1fr;} }
+
+  .panel{
+    background:var(--panel);border:1px solid var(--border);border-radius:14px;
+    box-shadow:0 4px 14px -6px rgba(0,0,0,0.4);
+  }
+
+  /* gauge card */
+  .gauge-card{padding:20px 22px 18px;display:flex;flex-direction:column;align-items:center;}
+  .panel-label{
+    align-self:flex-start;font-size:11px;text-transform:uppercase;letter-spacing:0.8px;color:var(--muted);
+    font-weight:600;margin-bottom:6px;
+  }
+  .gauge-wrap{position:relative;width:260px;height:150px;margin-top:6px;}
+  .gauge-arc{
+    position:absolute;top:0;left:0;width:260px;height:130px;overflow:hidden;
+    --low-deg:32deg; --mid-deg:108deg;
+  }
+  .gauge-arc::before{
+    content:'';position:absolute;top:0;left:0;width:260px;height:260px;border-radius:50%;
+    background:conic-gradient(from -90deg,
+      var(--green) 0deg var(--low-deg),
+      var(--amber) var(--low-deg) var(--mid-deg),
+      var(--red) var(--mid-deg) 180deg,
+      transparent 180deg 360deg);
+    mask:radial-gradient(circle at 50% 100%, transparent 76px, #000 77px);
+    -webkit-mask:radial-gradient(circle at 50% 100%, transparent 76px, #000 77px);
+  }
+  .gauge-needle{
+    position:absolute;left:129px;bottom:0;width:3px;height:112px;background:var(--text);
+    transform-origin:bottom center;transform:rotate(-90deg);transition:transform .5s cubic-bezier(.4,1.4,.4,1);
+    border-radius:2px;
+  }
+  .gauge-needle::after{
+    content:'';position:absolute;left:50%;bottom:-6px;width:12px;height:12px;background:var(--text);
+    border-radius:50%;transform:translateX(-50%);
+  }
+  .gauge-readout{text-align:center;margin-top:2px;}
+  .gauge-value{font-family:var(--font-mono);font-size:34px;font-weight:700;line-height:1;color:var(--text);}
+  .gauge-unit{font-size:12px;color:var(--muted);margin-top:4px;letter-spacing:0.3px;}
+
+  .level-lights{display:flex;gap:8px;margin-top:16px;width:100%;}
+  .level-light{
+    flex:1;text-align:center;padding:8px 4px;border-radius:8px;border:1px solid var(--border-soft);
+    font-size:10.5px;font-weight:600;letter-spacing:0.4px;text-transform:uppercase;color:var(--muted-dim);
+    transition:all .25s;font-family:var(--font-ui);
+  }
+  .level-light.on-low{background:rgba(51,214,138,0.12);border-color:var(--green);color:var(--green);}
+  .level-light.on-mid{background:rgba(255,159,28,0.12);border-color:var(--amber);color:var(--amber);}
+  .level-light.on-high{background:rgba(255,92,92,0.14);border-color:var(--red);color:var(--red);
+    box-shadow:0 0 10px rgba(255,92,92,0.25);}
+
+  /* metrics grid */
+  .metrics-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:14px;}
+  @media (max-width:560px){ .metrics-grid{grid-template-columns:1fr;} }
+  .metric-card{padding:16px 18px;position:relative;overflow:hidden;}
+  .metric-card::before{content:'';position:absolute;top:0;left:0;width:3px;height:100%;}
+  .metric-card.cps::before{background:var(--blue);}
+  .metric-card.cpm::before{background:#8b7bff;}
+  .metric-card.dose::before{background:var(--red);}
+  .metric-card.total::before{background:var(--yellow);}
+  .metric-title{font-size:10.5px;text-transform:uppercase;letter-spacing:0.6px;color:var(--muted);font-weight:600;}
+  .metric-value{font-family:var(--font-mono);font-size:26px;font-weight:700;margin:6px 0 4px;color:var(--text);}
+  .metric-value small{font-size:13px;color:var(--muted);font-weight:500;}
+  .metric-sub{font-size:11.5px;color:var(--muted);border-top:1px solid var(--border-soft);padding-top:6px;margin-top:4px;font-family:var(--font-mono);}
+  .metric-sub strong{color:var(--text);font-weight:600;}
+
+  .env-card{grid-column:1 / -1;display:flex;align-items:center;justify-content:space-between;padding:14px 18px;}
+  .env-left{display:flex;align-items:center;gap:12px;}
+  .env-icon{width:34px;height:34px;border-radius:8px;background:rgba(51,214,138,0.1);display:flex;align-items:center;justify-content:center;}
+  .env-icon svg{width:18px;height:18px;color:var(--green);}
+  .env-value{font-family:var(--font-mono);font-size:18px;font-weight:600;}
+  .env-title{font-size:10.5px;text-transform:uppercase;letter-spacing:0.6px;color:var(--muted);font-weight:600;}
+  .env-status{font-size:11.5px;font-family:var(--font-mono);padding:4px 10px;border-radius:12px;border:1px solid var(--border-soft);}
+  .env-status.ok{color:var(--green);border-color:var(--green);}
+  .env-status.err{color:var(--red);border-color:var(--red);}
+
+  /* ---------- chart panel ---------- */
+  .chart-card{padding:20px 22px;height:480px;display:flex;flex-direction:column;}
+  .chart-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
+  .chart-head h2{font-family:var(--font-display);font-size:14px;font-weight:600;letter-spacing:0.3px;text-transform:uppercase;color:var(--text);}
+  .legend-hint{font-size:11px;color:var(--muted);font-family:var(--font-mono);}
+  .chart-canvas-wrap{flex:1;position:relative;}
+
+  /* ---------- footer sync ---------- */
+  #sync-status{
+    margin-top:16px;font-size:12.5px;color:var(--muted);display:flex;align-items:center;gap:8px;
+    font-family:var(--font-mono);
+  }
+  .warning-text{color:var(--amber);font-weight:500;}
+
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .spin{animation:spin 1s linear infinite;display:inline-block;}
+
+  /* ---------- gauge header row + settings trigger ---------- */
+  .gauge-head{display:flex;justify-content:space-between;align-items:center;width:100%;}
+  .icon-btn{
+    background:transparent;border:1px solid var(--border-soft);color:var(--muted);
+    width:26px;height:26px;border-radius:7px;display:flex;align-items:center;justify-content:center;
+    cursor:pointer;transition:all .15s;
+  }
+  .icon-btn:hover{color:var(--yellow);border-color:var(--yellow-dim);background:rgba(244,196,48,0.06);}
+  .icon-btn svg{width:14px;height:14px;}
+
+  /* ---------- settings modal ---------- */
+  .modal-overlay{
+    position:fixed;inset:0;background:rgba(6,8,11,0.72);backdrop-filter:blur(3px);
+    display:none;align-items:center;justify-content:center;z-index:100;padding:20px;
+  }
+  .modal-overlay.open{display:flex;}
+  .modal-box{
+    background:var(--panel-2);border:1px solid var(--border);border-radius:14px;
+    width:100%;max-width:360px;padding:22px 22px 20px;box-shadow:0 20px 50px -12px rgba(0,0,0,0.6);
+  }
+  .modal-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;}
+  .modal-head h3{font-family:var(--font-display);font-size:15px;font-weight:600;color:var(--text);text-transform:uppercase;letter-spacing:0.3px;}
+  .modal-close{background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;line-height:1;padding:2px 4px;}
+  .modal-close:hover{color:var(--text);}
+  .modal-sub{font-size:12px;color:var(--muted);margin-bottom:16px;line-height:1.5;}
+
+  .field-group{margin-bottom:14px;}
+  .field-group label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:var(--muted);font-weight:600;margin-bottom:6px;}
+  .field-group input{
+    width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);
+    padding:10px 12px;border-radius:8px;font-family:var(--font-mono);font-size:14px;letter-spacing:1px;
+    outline:none;transition:border-color .15s;
+  }
+  .field-group input:focus{border-color:var(--yellow-dim);}
+  .field-error{font-size:12px;color:var(--red);margin-top:8px;display:none;}
+  .field-error.show{display:block;}
+
+  .modal-actions{display:flex;gap:10px;margin-top:18px;}
+  .modal-btn{
+    flex:1;padding:10px 14px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;
+    border:1px solid var(--border);background:transparent;color:var(--muted);font-family:var(--font-ui);
+    transition:all .15s;
+  }
+  .modal-btn:hover{color:var(--text);border-color:var(--muted);}
+  .modal-btn.primary{background:var(--yellow);border-color:var(--yellow);color:#14181f;}
+  .modal-btn.primary:hover{filter:brightness(1.06);}
+  .modal-unit{font-size:11px;color:var(--muted-dim);margin-left:2px;text-transform:none;display:inline-block;}
+  .modal-note{font-size:11px;color:var(--muted-dim);margin-top:14px;line-height:1.5;border-top:1px solid var(--border-soft);padding-top:12px;}
+
+  /* ---------- chart series picker ---------- */
+  .chart-controls{
+    display:flex;align-items:center;flex-wrap:wrap;gap:16px;
+    padding-bottom:14px;margin-bottom:14px;border-bottom:1px solid var(--border-soft);
+  }
+  .series-picker{display:flex;align-items:center;gap:8px;}
+  .series-picker label{
+    display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);text-transform:uppercase;
+    letter-spacing:0.4px;font-weight:600;white-space:nowrap;
+  }
+  .dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+  .dot-left{background:var(--blue);}
+  .dot-right{background:var(--red);}
+  .series-picker select{
+    background:var(--bg);border:1px solid var(--border);color:var(--text);
+    padding:7px 10px;border-radius:7px;font-family:var(--font-ui);font-size:12.5px;outline:none;
+    cursor:pointer;transition:border-color .15s;max-width:190px;
+  }
+  .series-picker select:focus{border-color:var(--yellow-dim);}
+  .color-swatch{
+    width:28px;height:28px;border-radius:7px;border:1px solid var(--border);background:var(--bg);
+    padding:2px;cursor:pointer;-webkit-appearance:none;appearance:none;
+  }
+  .color-swatch::-webkit-color-swatch-wrapper{padding:0;}
+  .color-swatch::-webkit-color-swatch{border:none;border-radius:5px;}
+  .color-swatch::-moz-color-swatch{border:none;border-radius:5px;}
+  .zone-hint{
+    display:flex;align-items:center;gap:12px;font-size:11px;color:var(--muted);font-family:var(--font-mono);
+    margin-left:auto;
+  }
+  .zone-hint span{display:flex;align-items:center;gap:5px;}
+  .zone-hint .dot-zone{width:7px;height:7px;border-radius:50%;}
+</style>
+</head>
+<body>
+
+<div class="hazard-strip"></div>
+
+<div class="container">
+  <header>
+    <div class="brand">
+      <svg class="trefoil" viewBox="0 0 64 64" fill="none">
+        <circle cx="32" cy="32" r="30" stroke="#f4c430" stroke-width="2" opacity="0.35"/>
+        <circle cx="32" cy="32" r="6" fill="#f4c430"/>
+        <g fill="#f4c430">
+          <path d="M32 20a12 12 0 0 0-10.39 6l7.79 4.5A4 4 0 0 1 32 28z"/>
+          <path d="M42.39 38a12 12 0 0 0 0-12l-7.79 4.5a4 4 0 0 1 0 3z" transform="rotate(0 32 32)"/>
+        </g>
+        <g fill="#f4c430">
+          <path d="M32 20a12 12 0 0 1 10.39 6l-7.79 4.5A4 4 0 0 0 32 28z"/>
+        </g>
+        <g fill="#f4c430" transform="rotate(120 32 32)"><path d="M32 20a12 12 0 0 1 10.39 6l-7.79 4.5A4 4 0 0 0 32 28z"/></g>
+        <g fill="#f4c430" transform="rotate(240 32 32)"><path d="M32 20a12 12 0 0 1 10.39 6l-7.79 4.5A4 4 0 0 0 32 28z"/></g>
+      </svg>
+      <div class="brand-text">
+        <h1>Giám sát phóng xạ</h1>
+        <p>Hệ thống hiển thị và cảnh báo phóng xạ 3 mức</p>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="live-clock" id="live-clock">--:--:--</div>
+      <div class="status-badge">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="device-id">Trạm đo: đang kết nối...</span>
+      </div>
+    </div>
+  </header>
+
+  <div class="control-panel">
+    <div class="filter-group">
+      <button class="btn active" onclick="setHourFilter(1, this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+        1 giờ
+      </button>
+      <button class="btn" onclick="setHourFilter(4, this)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+        4 giờ
+      </button>
+      <button class="btn" onclick="fetchData()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg>
+        Tải lại
+      </button>
+    </div>
+    <button class="btn-action" onclick="exportToCSV()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+      Xuất báo cáo lâm sàng (CSV)
+    </button>
+  </div>
+
+  <div class="top-row">
+    <div class="panel gauge-card">
+      <div class="gauge-head">
+        <span class="panel-label" style="margin-bottom:0;">Suất liều hiện tại</span>
+        <button class="icon-btn" onclick="openSettingsModal()" title="Tùy chỉnh ngưỡng cảnh báo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 0 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 0 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1-1.55V3a2 2 0 0 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9a1.7 1.7 0 0 0 1.55 1H21a2 2 0 0 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/></svg>
+        </button>
+      </div>
+      <div class="gauge-wrap">
+        <div class="gauge-arc"></div>
+        <div class="gauge-needle" id="gauge-needle"></div>
+      </div>
+      <div class="gauge-readout">
+        <div class="gauge-value" id="gauge-value">0.000</div>
+        <div class="gauge-unit">µSv/h &middot; trung bình</div>
+      </div>
+      <div class="level-lights">
+        <div class="level-light" id="light-low">Thấp</div>
+        <div class="level-light" id="light-mid">Trung bình</div>
+        <div class="level-light" id="light-high">Cao</div>
+      </div>
+    </div>
+
+    <div class="metrics-grid">
+      <div class="panel metric-card cps">
+        <div class="metric-title">Tốc độ đếm (CPS)</div>
+        <div class="metric-value" id="val-cps-avg">--</div>
+        <div class="metric-sub">Tức thời (3s): <strong id="val-cps-i">--</strong></div>
+      </div>
+      <div class="panel metric-card cpm">
+        <div class="metric-title">Tốc độ đếm (CPM)</div>
+        <div class="metric-value" id="val-cpm-avg">--</div>
+        <div class="metric-sub">Tức thời (3s): <strong id="val-cpm-i">--</strong></div>
+      </div>
+      <div class="panel metric-card dose">
+        <div class="metric-title">Suất liều trung bình</div>
+        <div class="metric-value" id="val-dose-avg">-- <small>µSv/h</small></div>
+        <div class="metric-sub">Tức thời (3s): <strong id="val-dose-i">-- µSv/h</strong></div>
+      </div>
+      <div class="panel metric-card total">
+        <div class="metric-title">Tổng số đếm tích lũy</div>
+        <div class="metric-value" id="val-total">--</div>
+        <div class="metric-sub">Tổng xung ghi nhận từ thiết bị</div>
+      </div>
+      <div class="panel env-card">
+        <div class="env-left">
+          <div class="env-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 4v10.5a4 4 0 1 1-4 0V4a2 2 0 0 1 4 0z"/></svg>
+          </div>
+          <div>
+            <div class="env-title">Môi trường phòng cách ly</div>
+            <div class="env-value" id="val-weather">--°C / --%</div>
+          </div>
+        </div>
+        <div class="env-status ok" id="val-dht-status">Đang chờ...</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel chart-card">
+    <div class="chart-head">
+      <h2>Biểu đồ theo thời gian thực</h2>
+      <span class="legend-hint">Cập nhật mỗi 3 giây &middot; đồng bộ ESP8266</span>
+    </div>
+    <div class="chart-controls">
+      <div class="series-picker">
+        <label for="series-left-select"><span class="dot dot-left" id="dot-left"></span>Trục trái</label>
+        <select id="series-left-select" onchange="onSeriesChange()"></select>
+        <input type="color" id="series-left-color" class="color-swatch" onchange="onColorChange()" title="Chọn màu hiển thị">
+      </div>
+      <div class="series-picker">
+        <label for="series-right-select"><span class="dot dot-right" id="dot-right"></span>Trục phải</label>
+        <select id="series-right-select" onchange="onSeriesChange()"></select>
+        <input type="color" id="series-right-color" class="color-swatch" onchange="onColorChange()" title="Chọn màu hiển thị">
+      </div>
+      <div class="zone-hint" id="zone-hint"></div>
+    </div>
+    <div class="chart-canvas-wrap">
+      <canvas id="radiationChart"></canvas>
+    </div>
+  </div>
+
+  <div id="sync-status"><span class="spin">&#8635;</span> Đang đồng bộ đám mây AWS...</div>
+</div>
+
+<!-- ---------- Modal: xác thực mã + tùy chỉnh ngưỡng cảnh báo ---------- -->
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal-box">
+
+    <div id="modal-step-code">
+      <div class="modal-head">
+        <h3>Yêu cầu mã truy cập</h3>
+        <button class="modal-close" onclick="closeModal()">&times;</button>
+      </div>
+      <p class="modal-sub">Nhập mã truy cập để tùy chỉnh ngưỡng cảnh báo suất liều 3 cấp độ.</p>
+      <div class="field-group">
+        <label>Mã truy cập</label>
+        <input type="password" id="access-code-input" inputmode="numeric" maxlength="6" placeholder="••••••" autocomplete="off">
+      </div>
+      <div class="field-error" id="code-error">Mã truy cập không đúng. Vui lòng thử lại.</div>
+      <div class="modal-actions">
+        <button class="modal-btn" onclick="closeModal()">Hủy</button>
+        <button class="modal-btn primary" onclick="verifyAccessCode()">Xác nhận</button>
+      </div>
+    </div>
+
+    <div id="modal-step-edit" style="display:none;">
+      <div class="modal-head">
+        <h3>Tùy chỉnh ngưỡng cảnh báo</h3>
+        <button class="modal-close" onclick="closeModal()">&times;</button>
+      </div>
+      <p class="modal-sub">Đặt ngưỡng suất liều cho từng cấp độ cảnh báo trên đồng hồ đo. Đơn vị: <strong>µSv/h</strong>.</p>
+
+      <div class="field-group">
+        <label>Ngưỡng Thấp &rarr; Trung bình</label>
+        <input type="number" step="0.01" min="0" id="input-threshold-low">
+      </div>
+      <div class="field-group">
+        <label>Ngưỡng Trung bình &rarr; Cao</label>
+        <input type="number" step="0.01" min="0" id="input-threshold-mid">
+      </div>
+      <div class="field-error" id="edit-error">Giá trị không hợp lệ. Yêu cầu: Ngưỡng Thấp phải nhỏ hơn ngưỡng Trung bình.</div>
+
+      <div class="modal-actions">
+        <button class="modal-btn" onclick="resetThresholdsToDefault()">Mặc định</button>
+        <button class="modal-btn primary" onclick="saveThresholds()">Lưu</button>
+      </div>
+      <p class="modal-note">Ngưỡng được lưu trên trình duyệt này và áp dụng ngay cho đồng hồ đo cùng 3 đèn cảnh báo.</p>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  // ============== ĐƯỜNG DẪN AWS API GATEWAY ==============
+  const API_URL = "https://ql4drki257.execute-api.ap-southeast-2.amazonaws.com/prod/latest";
+  // ========================================================
+
+  // Ngưỡng cảnh báo 3 cấp độ (µSv/h) — mặc định, có thể tùy chỉnh qua mã truy cập.
+  // "max" là giới hạn hiển thị của kim đồng hồ, được suy ra tự động từ low/mid, không cho người dùng nhập trực tiếp.
+  function computeThresholds(low, mid) {
+    return { low, mid, max: mid + (mid - low) * 2 };
+  }
+  const DEFAULT_THRESHOLDS = computeThresholds(0.5, 2.0);
+  const ACCESS_CODE = "582194";
+  const THRESHOLD_STORAGE_KEY = "radmon_dose_thresholds";
+
+  let DOSE_THRESHOLDS = loadThresholds();
+  let lastKnownDose = 0;
+
+  function loadThresholds() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(THRESHOLD_STORAGE_KEY));
+      if (saved && saved.low >= 0 && saved.low < saved.mid) return computeThresholds(saved.low, saved.mid);
+    } catch (e) { /* dùng mặc định nếu dữ liệu lỗi */ }
+    return { ...DEFAULT_THRESHOLDS };
+  }
+
+  function applyGaugeZones() {
+    const arc = document.querySelector('.gauge-arc');
+    const lowDeg = (DOSE_THRESHOLDS.low / DOSE_THRESHOLDS.max) * 180;
+    const midDeg = (DOSE_THRESHOLDS.mid / DOSE_THRESHOLDS.max) * 180;
+    arc.style.setProperty('--low-deg', `${Math.min(lowDeg, 180)}deg`);
+    arc.style.setProperty('--mid-deg', `${Math.min(midDeg, 180)}deg`);
+  }
+
+  function openSettingsModal() {
+    document.getElementById('modal-step-code').style.display = 'block';
+    document.getElementById('modal-step-edit').style.display = 'none';
+    document.getElementById('access-code-input').value = '';
+    document.getElementById('code-error').classList.remove('show');
+    document.getElementById('modal-overlay').classList.add('open');
+    setTimeout(() => document.getElementById('access-code-input').focus(), 50);
+  }
+
+  function closeModal() {
+    document.getElementById('modal-overlay').classList.remove('open');
+  }
+
+  function verifyAccessCode() {
+    const input = document.getElementById('access-code-input').value.trim();
+    if (input === ACCESS_CODE) {
+      document.getElementById('modal-step-code').style.display = 'none';
+      document.getElementById('modal-step-edit').style.display = 'block';
+      document.getElementById('input-threshold-low').value = DOSE_THRESHOLDS.low;
+      document.getElementById('input-threshold-mid').value = DOSE_THRESHOLDS.mid;
+      document.getElementById('edit-error').classList.remove('show');
+    } else {
+      document.getElementById('code-error').classList.add('show');
+    }
+  }
+
+  function resetThresholdsToDefault() {
+    document.getElementById('input-threshold-low').value = DEFAULT_THRESHOLDS.low;
+    document.getElementById('input-threshold-mid').value = DEFAULT_THRESHOLDS.mid;
+  }
+
+  function saveThresholds() {
+    const low = parseFloat(document.getElementById('input-threshold-low').value);
+    const mid = parseFloat(document.getElementById('input-threshold-mid').value);
+    const errorEl = document.getElementById('edit-error');
+
+    if (isNaN(low) || isNaN(mid) || !(low >= 0 && low < mid)) {
+      errorEl.classList.add('show');
+      return;
+    }
+    errorEl.classList.remove('show');
+
+    DOSE_THRESHOLDS = computeThresholds(low, mid);
+    localStorage.setItem(THRESHOLD_STORAGE_KEY, JSON.stringify({ low, mid }));
+    applyGaugeZones();
+    updateGauge(lastKnownDose);
+    if (chartInstance) { updateZoneHint(); chartInstance.update(); }
+    closeModal();
+  }
+
+  // Danh sách các trường dữ liệu có thể chọn để vẽ lên biểu đồ
+  const FIELD_META = {
+    cps_i:        { label: 'CPS — tức thời (3s)',        unit: 'CPS',   color: '#5eb1ff', group: 'Tốc độ đếm' },
+    cps_avg:      { label: 'CPS — trung bình',            unit: 'CPS',   color: '#5eb1ff', group: 'Tốc độ đếm' },
+    cpm_i:        { label: 'CPM — tức thời (3s)',         unit: 'CPM',   color: '#8b7bff', group: 'Tốc độ đếm' },
+    cpm_avg:      { label: 'CPM — trung bình',            unit: 'CPM',   color: '#8b7bff', group: 'Tốc độ đếm' },
+    dose_i:       { label: 'Suất liều — tức thời (3s)',   unit: 'µSv/h', color: '#ff5c5c', group: 'Suất liều', isDose: true },
+    dose_avg:     { label: 'Suất liều — trung bình',      unit: 'µSv/h', color: '#ff5c5c', group: 'Suất liều', isDose: true },
+    total_counts: { label: 'Tổng xung tích lũy',          unit: 'xung',  color: '#f4c430', group: 'Khác' },
+    temperature:  { label: 'Nhiệt độ phòng',              unit: '°C',    color: '#33d68a', group: 'Môi trường' },
+    humidity:     { label: 'Độ ẩm phòng',                 unit: '%',     color: '#5eb1ff', group: 'Môi trường' }
+  };
+  const DEFAULT_LEFT_FIELD = 'cps_i';
+  const DEFAULT_RIGHT_FIELD = 'dose_i';
+
+  let currentUrlParams = "?hours=1";
+  let autoRefreshTimer = null;
+  let globalRawData = [];
+  let chartInstance = null;
+
+  function populateSeriesSelects() {
+    const leftSel = document.getElementById('series-left-select');
+    const rightSel = document.getElementById('series-right-select');
+    rightSel.innerHTML = '<option value="">Không hiển thị</option>';
+    leftSel.innerHTML = '';
+
+    const groups = {};
+    Object.entries(FIELD_META).forEach(([key, meta]) => {
+      groups[meta.group] = groups[meta.group] || [];
+      groups[meta.group].push([key, meta]);
+    });
+
+    Object.entries(groups).forEach(([groupName, fields]) => {
+      const og1 = document.createElement('optgroup'); og1.label = groupName;
+      const og2 = document.createElement('optgroup'); og2.label = groupName;
+      fields.forEach(([key, meta]) => {
+        og1.appendChild(new Option(meta.label, key));
+        og2.appendChild(new Option(meta.label, key));
+      });
+      leftSel.appendChild(og1);
+      rightSel.appendChild(og2);
+    });
+
+    leftSel.value = DEFAULT_LEFT_FIELD;
+    rightSel.value = DEFAULT_RIGHT_FIELD;
+    document.getElementById('series-left-color').value = FIELD_META[DEFAULT_LEFT_FIELD].color;
+    document.getElementById('series-right-color').value = FIELD_META[DEFAULT_RIGHT_FIELD].color;
+  }
+
+  function doseZoneColor(val) {
+    if (val < DOSE_THRESHOLDS.low) return '#33d68a';
+    if (val < DOSE_THRESHOLDS.mid) return '#ff9f1c';
+    return '#ff5c5c';
+  }
+
+  function hexToRgba(hex, alpha) {
+    const h = hex.replace('#', '');
+    const r = parseInt(h.substring(0, 2), 16);
+    const g = parseInt(h.substring(2, 4), 16);
+    const b = parseInt(h.substring(4, 6), 16);
+    return `rgba(${r},${g},${b},${alpha})`;
+  }
+
+  // Vùng tô gradient bên dưới đường, mờ dần xuống đáy — kiểu biểu đồ tỷ giá
+  function makeAreaGradient(ctx, color) {
+    const chart = ctx.chart;
+    const { chartArea } = chart;
+    if (!chartArea) return hexToRgba(color, 0.15);
+    const gradient = chart.ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+    gradient.addColorStop(0, hexToRgba(color, 0.32));
+    gradient.addColorStop(1, hexToRgba(color, 0.02));
+    return gradient;
+  }
+
+  function buildDataset(field, axisId, customColor) {
+    const meta = FIELD_META[field];
+    const color = customColor || meta.color;
+    const ds = {
+      label: meta.label,
+      data: [],
+      borderColor: color,
+      backgroundColor: (ctx) => makeAreaGradient(ctx, color),
+      borderWidth: 2,
+      yAxisID: axisId,
+      pointRadius: 0,
+      pointHoverRadius: 5,
+      pointHoverBackgroundColor: color,
+      pointHoverBorderColor: '#0a0d12',
+      pointHoverBorderWidth: 2,
+      tension: 0.35,
+      fill: true,
+      fieldKey: field
+    };
+    // Với suất liều: tô màu từng đoạn theo 2 ngưỡng cảnh báo (xanh lá / vàng / đỏ)
+    if (meta.isDose) {
+      ds.segment = {
+        borderColor: (segCtx) => doseZoneColor(segCtx.p1.parsed.y)
+      };
+    }
+    return ds;
+  }
+
+  // Plugin vẽ đường gióng dọc (crosshair) tại điểm đang hover — giống biểu đồ tỷ giá
+  const crosshairPlugin = {
+    id: 'crosshair',
+    afterDraw(chart) {
+      const active = chart.tooltip?.getActiveElements?.() || [];
+      if (!active.length) return;
+      const { ctx, chartArea } = chart;
+      const x = active[0].element.x;
+      ctx.save();
+      ctx.beginPath();
+      ctx.setLineDash([4, 4]);
+      ctx.moveTo(x, chartArea.top);
+      ctx.lineTo(x, chartArea.bottom);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(232,237,244,0.25)';
+      ctx.stroke();
+      ctx.restore();
+    }
+  };
+
+  function initChart() {
+    populateSeriesSelects();
+    const ctx = document.getElementById('radiationChart').getContext('2d');
+    chartInstance = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [
+          buildDataset(DEFAULT_LEFT_FIELD, 'y-left'),
+          buildDataset(DEFAULT_RIGHT_FIELD, 'y-right')
+        ]
+      },
+      plugins: [crosshairPlugin],
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { labels: { color: '#e8edf4', font: { family: 'Inter', size: 12 }, usePointStyle: true, boxWidth: 8 } },
+          tooltip: {
+            backgroundColor: '#10151c',
+            borderColor: '#212a37',
+            borderWidth: 1,
+            titleColor: '#7d8aa0',
+            bodyColor: '#e8edf4',
+            titleFont: { family: 'JetBrains Mono', size: 11 },
+            bodyFont: { family: 'JetBrains Mono', size: 13, weight: '600' },
+            padding: 10,
+            displayColors: true,
+            boxPadding: 4,
+            cornerRadius: 8
+          }
+        },
+        scales: {
+          x: { grid: { color: '#1a2129' }, ticks: { color: '#7d8aa0', maxTicksLimit: 10, font: { family: 'JetBrains Mono', size: 10 } } },
+          'y-left': { type: 'linear', display: true, position: 'left', grid: { color: '#1a2129' }, ticks: { color: '#5eb1ff', font: { family: 'JetBrains Mono', size: 10 } }, title: { display: true, text: FIELD_META[DEFAULT_LEFT_FIELD].unit, color: '#5eb1ff', font: { family: 'Inter', size: 11 } } },
+          'y-right': { type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false }, ticks: { color: '#ff5c5c', font: { family: 'JetBrains Mono', size: 10 } }, title: { display: true, text: FIELD_META[DEFAULT_RIGHT_FIELD].unit, color: '#ff5c5c', font: { family: 'Inter', size: 11 } } }
+        }
+      }
+    });
+    updateZoneHint();
+  }
+
+  function updateZoneHint() {
+    const leftField = document.getElementById('series-left-select').value;
+    const rightField = document.getElementById('series-right-select').value;
+    const showHint = FIELD_META[leftField]?.isDose || FIELD_META[rightField]?.isDose;
+    const hintEl = document.getElementById('zone-hint');
+    if (!showHint) { hintEl.innerHTML = ''; return; }
+    hintEl.innerHTML = `
+      <span><span class="dot-zone" style="background:#33d68a;"></span>&lt; ${DOSE_THRESHOLDS.low} µSv/h</span>
+      <span><span class="dot-zone" style="background:#ff9f1c;"></span>${DOSE_THRESHOLDS.low}–${DOSE_THRESHOLDS.mid} µSv/h</span>
+      <span><span class="dot-zone" style="background:#ff5c5c;"></span>&gt; ${DOSE_THRESHOLDS.mid} µSv/h</span>
+    `;
+  }
+
+  function onSeriesChange() {
+    // Đổi trường dữ liệu -> đặt lại màu mặc định của trường đó vào ô chọn màu
+    const leftField = document.getElementById('series-left-select').value;
+    const rightField = document.getElementById('series-right-select').value;
+    document.getElementById('series-left-color').value = FIELD_META[leftField].color;
+    document.getElementById('dot-left').style.background = FIELD_META[leftField].color;
+    if (rightField) {
+      document.getElementById('series-right-color').value = FIELD_META[rightField].color;
+      document.getElementById('dot-right').style.background = FIELD_META[rightField].color;
+    }
+    rebuildDatasets();
+  }
+
+  function onColorChange() {
+    document.getElementById('dot-left').style.background = document.getElementById('series-left-color').value;
+    document.getElementById('dot-right').style.background = document.getElementById('series-right-color').value;
+    rebuildDatasets();
+  }
+
+  function rebuildDatasets() {
+    const leftField = document.getElementById('series-left-select').value;
+    const rightField = document.getElementById('series-right-select').value;
+    const leftColor = document.getElementById('series-left-color').value;
+    const rightColor = document.getElementById('series-right-color').value;
+
+    const datasets = [buildDataset(leftField, 'y-left', leftColor)];
+    chartInstance.options.scales['y-left'].title.text = FIELD_META[leftField].unit;
+    chartInstance.options.scales['y-left'].ticks.color = leftColor;
+    chartInstance.options.scales['y-left'].title.color = leftColor;
+
+    if (rightField) {
+      datasets.push(buildDataset(rightField, 'y-right', rightColor));
+      chartInstance.options.scales['y-right'].display = true;
+      chartInstance.options.scales['y-right'].title.text = FIELD_META[rightField].unit;
+      chartInstance.options.scales['y-right'].ticks.color = rightColor;
+      chartInstance.options.scales['y-right'].title.color = rightColor;
+    } else {
+      chartInstance.options.scales['y-right'].display = false;
+    }
+
+    chartInstance.data.datasets = datasets;
+    populateChartData();
+    updateZoneHint();
+    chartInstance.update();
+  }
+
+  function populateChartData() {
+    if (!chartInstance || globalRawData.length === 0) return;
+    const newLabels = globalRawData.map(item => {
+      const d = new Date(Number(item.timestamp) * 1000);
+      return d.toLocaleTimeString('vi-VN', {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+    });
+    chartInstance.data.labels = newLabels;
+    chartInstance.data.datasets.forEach(ds => {
+      ds.data = globalRawData.map(d => d[ds.fieldKey]);
+    });
+  }
+
+  function updateGauge(doseAvg) {
+    const val = Number(doseAvg) || 0;
+    lastKnownDose = val;
+    const max = DOSE_THRESHOLDS.max;
+    const clamped = Math.max(0, Math.min(val, max));
+    const angle = -90 + (clamped / max) * 180;
+
+    document.getElementById('gauge-needle').style.transform = `rotate(${angle}deg)`;
+    document.getElementById('gauge-value').textContent = val.toFixed(3);
+
+    const lowEl = document.getElementById('light-low');
+    const midEl = document.getElementById('light-mid');
+    const highEl = document.getElementById('light-high');
+    [lowEl, midEl, highEl].forEach(el => el.className = 'level-light');
+
+    if (val < DOSE_THRESHOLDS.low) {
+      lowEl.classList.add('on-low');
+    } else if (val < DOSE_THRESHOLDS.mid) {
+      midEl.classList.add('on-mid');
+    } else {
+      highEl.classList.add('on-high');
+    }
+  }
+
+  function updateClock() {
+    document.getElementById('live-clock').textContent = new Date().toLocaleTimeString('vi-VN');
+  }
+  setInterval(updateClock, 1000);
+  updateClock();
+
+  function setConnectionStatus(online) {
+    const dot = document.getElementById('status-dot');
+    dot.className = 'status-dot ' + (online ? 'online' : 'offline');
+  }
+
+  async function fetchData() {
+    try {
+      const response = await fetch(`${API_URL}${currentUrlParams}`);
+      const result = await response.json();
+
+      if (result.success && result.allData) {
+        globalRawData = result.allData;
+        setConnectionStatus(true);
+
+        if (globalRawData.length > 0) {
+          const latest = globalRawData[globalRawData.length - 1];
+
+          document.getElementById('device-id').innerText = `Trạm đo: ${latest.connectionId || 'N/A'}`;
+
+          document.getElementById('val-cps-avg').innerText = latest.cps_avg ?? 0;
+          document.getElementById('val-cpm-avg').innerText = latest.cpm_avg ?? 0;
+          document.getElementById('val-dose-avg').innerHTML = `${latest.dose_avg ?? 0} <small>µSv/h</small>`;
+
+          document.getElementById('val-cps-i').innerHTML = `${latest.cps_i ?? 0}`;
+          document.getElementById('val-cpm-i').innerHTML = `${latest.cpm_i ?? 0}`;
+          document.getElementById('val-dose-i').innerHTML = `${latest.dose_i ?? 0} µSv/h`;
+
+          document.getElementById('val-total').innerText = latest.total_counts ?? 0;
+
+          updateGauge(latest.dose_avg ?? 0);
+
+          if (latest.dht_error || latest.temperature == null) {
+            document.getElementById('val-weather').innerText = "LỖI / LỖI";
+            const s = document.getElementById('val-dht-status');
+            s.textContent = "Cảm biến lỗi";
+            s.className = "env-status err";
+          } else {
+            document.getElementById('val-weather').innerText = `${latest.temperature}°C / ${latest.humidity}%`;
+            const s = document.getElementById('val-dht-status');
+            s.textContent = "Ổn định";
+            s.className = "env-status ok";
+          }
+        }
+
+        populateChartData();
+        chartInstance.update('none');
+
+        let statusTxt = `<i>&#10003;</i> Chế độ giám sát: [${result.filter || currentUrlParams.replace('?hours=', '') + ' giờ'}] · Quét thực tế: ${result.count} điểm phổ.`;
+        if (result.downsampled) {
+          statusTxt += ` <span class="warning-text">(Đã kích hoạt chế độ nén giữ đỉnh để bảo vệ bộ nhớ Web)</span>`;
+        }
+        document.getElementById('sync-status').innerHTML = statusTxt;
+      }
+    } catch (error) {
+      console.error(error);
+      setConnectionStatus(false);
+      document.getElementById('sync-status').innerHTML = "<span style='color:#ff5c5c;'>&#9888; Mất kết nối đám mây AWS.</span>";
+    }
+  }
+
+  function setHourFilter(hours, element) {
+    currentUrlParams = `?hours=${hours}`;
+    updateActiveButton(element);
+    fetchData();
+    clearInterval(autoRefreshTimer);
+    autoRefreshTimer = setInterval(fetchData, 3000);
+  }
+
+  function updateActiveButton(element) {
+    document.querySelectorAll('.filter-group .btn').forEach(btn => btn.classList.remove('active'));
+    element.classList.add('active');
+  }
+
+  function exportToCSV() {
+    if (globalRawData.length === 0) { alert("Không có dữ liệu lâm sàng để xuất báo cáo!"); return; }
+    let csvContent = "data:text/csv;charset=utf-8,\uFEFF";
+    csvContent += "Thời gian đo,Trạm thiết bị,CPS Trung bình,CPM Tốc độ đếm,Suất liều trung bình (uSv/h),CPS Tức thời (3s),CPM Tức thời (3s),Suất liều Tức thời (3s),Tổng xung tích lũy,Nhiệt độ phòng (C),Độ ẩm (%)\n";
+
+    globalRawData.forEach(item => {
+      const date = new Date(Number(item.timestamp) * 1000);
+      const timeStr = date.toLocaleString('vi-VN').replace(/,/g, '');
+      const row = [
+        timeStr, item.connectionId || '',
+        item.cps_avg ?? '', item.cpm_avg ?? '', item.dose_avg ?? '',
+        item.cps_i ?? '', item.cpm_i ?? '', item.dose_i ?? '',
+        item.total_counts ?? '', item.temperature ?? '', item.humidity ?? ''
+      ].join(",");
+      csvContent += row + "\n";
+    });
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `Bao_Cao_Phong_Xa_Lam_Sang_${Math.floor(Date.now()/1000)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
+  document.getElementById('modal-overlay').addEventListener('click', (e) => {
+    if (e.target.id === 'modal-overlay') closeModal();
+  });
+  document.getElementById('access-code-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') verifyAccessCode();
+  });
+
+  window.onload = () => {
+    applyGaugeZones();
+    initChart();
+    setHourFilter(1, document.querySelector('.filter-group .btn'));
+  };
+</script>
+</body>
+</html>
